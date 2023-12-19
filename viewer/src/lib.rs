@@ -1,12 +1,14 @@
 use bytemuck::{Pod, Zeroable};
+use glam::Vec3;
+use kernel::{Line, ParametricLine};
+use line_rendering::LineState;
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use wgpu::{
-    include_wgsl, vertex_attr_array, Backends, BindGroup, BindGroupDescriptor, BindGroupEntry,
-    BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType, Buffer, BufferAddress,
-    BufferBindingType, BufferUsages, Color, CommandEncoderDescriptor, Device, Instance,
-    InstanceDescriptor, LoadOp, Operations, Queue, RenderPassColorAttachment, RenderPassDescriptor,
-    RenderPipeline, ShaderStages, StoreOp, Surface, SurfaceConfiguration, SurfaceError,
-    TextureUsages, TextureViewDescriptor, VertexBufferLayout, VertexStepMode,
+    include_wgsl, vertex_attr_array, Backends, Buffer, BufferAddress, BufferUsages, Color,
+    CommandEncoderDescriptor, Device, Instance, InstanceDescriptor, LoadOp, Operations, Queue,
+    RenderPassColorAttachment, RenderPassDescriptor, StoreOp, Surface, SurfaceConfiguration,
+    SurfaceError, TextureUsages, TextureViewDescriptor, VertexBufferLayout, VertexState,
+    VertexStepMode,
 };
 use winit::dpi::PhysicalSize;
 use winit::event::WindowEvent;
@@ -18,6 +20,8 @@ struct RawVertex {
     position: [f32; 3],
 }
 
+mod line_rendering;
+
 impl RawVertex {
     fn desc() -> VertexBufferLayout<'static> {
         VertexBufferLayout {
@@ -27,18 +31,6 @@ impl RawVertex {
         }
     }
 }
-
-const VERTICES: &[RawVertex] = &[
-    RawVertex {
-        position: [0.0, 0.5, 0.0],
-    },
-    RawVertex {
-        position: [-0.5, -0.5, 0.0],
-    },
-    RawVertex {
-        position: [0.5, -0.5, 0.0],
-    },
-];
 
 const CLIP_VERTICES: &[RawVertex] = &[
     RawVertex {
@@ -58,10 +50,8 @@ pub struct State {
     pub queue: Queue,
     pub size: PhysicalSize<u32>,
     pub window: Window,
-    pub render_pipeline: RenderPipeline,
     pub config: SurfaceConfiguration,
-    pub vertex_buffer: Buffer,
-    pub vertex_bind_group: BindGroup,
+    pub line_state: LineState,
     pub clip_vertex_buffer: Buffer,
 }
 
@@ -96,57 +86,24 @@ impl State {
                 &wgpu::DeviceDescriptor {
                     label: None,
                     features: wgpu::Features::empty(),
-                    limits: wgpu::Limits::downlevel_webgl2_defaults()
-                        .using_resolution(adapter.limits()),
+                    limits: wgpu::Limits::downlevel_defaults(),
                 },
                 None,
             )
             .await
             .expect("Failed to create device");
 
-        // Load the shaders from disk
-        let shader = device.create_shader_module(include_wgsl!("shader.wgsl"));
-
-        let vertex_buffer = device.create_buffer_init(&BufferInitDescriptor {
-            label: Some("Vertex Buffer"),
-            contents: bytemuck::cast_slice(VERTICES),
-            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
-        });
-
-        let vertex_bind_group_layout =
-            device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-                label: Some("Vertex Bind Group Layout"),
-                entries: &[BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: ShaderStages::FRAGMENT,
-                    count: None,
-                    ty: BindingType::Buffer {
-                        ty: BufferBindingType::Storage { read_only: true },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                }],
-            });
-
-        let vertex_bind_group = device.create_bind_group(&BindGroupDescriptor {
-            label: Some("Vertex Bind Group"),
-            layout: &vertex_bind_group_layout,
-            entries: &[BindGroupEntry {
-                binding: 0,
-                resource: vertex_buffer.as_entire_binding(),
-            }],
-        });
+        let vert_shader = device.create_shader_module(include_wgsl!("vert_shader.wgsl"));
+        let vert_shader_state = VertexState {
+            module: &vert_shader,
+            entry_point: "vs_main",
+            buffers: &[RawVertex::desc()],
+        };
 
         let clip_vertex_buffer = device.create_buffer_init(&BufferInitDescriptor {
             label: Some("Clip Vertex Buffer"),
             contents: bytemuck::cast_slice(CLIP_VERTICES),
             usage: BufferUsages::VERTEX,
-        });
-
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: None,
-            bind_group_layouts: &[&vertex_bind_group_layout],
-            push_constant_ranges: &[],
         });
 
         let surface_caps = surface.get_capabilities(&adapter);
@@ -167,43 +124,13 @@ impl State {
             alpha_mode: surface_caps.alpha_modes[0],
             view_formats: vec![],
         };
-        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: None,
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: "vs_main",
-                buffers: &[RawVertex::desc()],
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: "fs_main",
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: config.format,
-                    blend: Some(wgpu::BlendState::REPLACE),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: Some(wgpu::Face::Back),
-                // Setting this to anything other than Fill requires Features::NON_FILL_POLYGON_MODE
-                polygon_mode: wgpu::PolygonMode::Fill,
-                // Requires Features::DEPTH_CLIP_CONTROL
-                unclipped_depth: false,
-                // Requires Features::CONSERVATIVE_RASTERIZATION
-                conservative: false,
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState {
-                count: 1,
-                mask: !0,
-                alpha_to_coverage_enabled: false,
-            },
-            multiview: None,
-        });
+
+        let lines = vec![Line::Parametric(ParametricLine::new(
+            Vec3::new(0., 0., 0.),
+            Vec3::new(1., 0., 0.),
+        ))];
+
+        let line_state = LineState::new(lines, &device, &vert_shader_state, &config);
 
         surface.configure(&device, &config);
 
@@ -213,10 +140,8 @@ impl State {
             queue,
             size,
             window,
-            render_pipeline,
             config,
-            vertex_buffer,
-            vertex_bind_group,
+            line_state,
             clip_vertex_buffer,
         }
     }
@@ -274,8 +199,9 @@ impl State {
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
-            rpass.set_pipeline(&self.render_pipeline);
-            rpass.set_bind_group(0, &self.vertex_bind_group, &[]);
+            rpass.set_pipeline(&self.line_state.render_pipeline);
+            rpass.set_bind_group(0, &self.line_state.line_data_bind_group, &[]);
+            rpass.set_bind_group(1, &self.line_state.line_bind_group, &[]);
             rpass.set_vertex_buffer(0, self.clip_vertex_buffer.slice(..));
             rpass.draw(0..3, 0..1);
         }
