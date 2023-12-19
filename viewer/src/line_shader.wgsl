@@ -1,5 +1,5 @@
 struct LineData {
-    position: vec3<f32>,
+    count: u32,
 }
 
 struct Line {
@@ -15,5 +15,13 @@ var<storage, read> lines: array<Line>;
 
 @fragment
 fn fs_main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
+    for (var i = 0; i < 1; i++) {
+        let line = lines[i];
+
+        if length(line.a.xy - position.xy) < 10. {
+            return vec4<f32>(1.);
+        }
+    }
+
     discard;
 }

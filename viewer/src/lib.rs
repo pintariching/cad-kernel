@@ -14,13 +14,14 @@ use winit::dpi::PhysicalSize;
 use winit::event::WindowEvent;
 use winit::window::Window;
 
+mod camera;
+mod line_rendering;
+
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct RawVertex {
     position: [f32; 3],
 }
-
-mod line_rendering;
 
 impl RawVertex {
     fn desc() -> VertexBufferLayout<'static> {
@@ -126,7 +127,7 @@ impl State {
         };
 
         let lines = vec![Line::Parametric(ParametricLine::new(
-            Vec3::new(0., 0., 0.),
+            Vec3::new(500., 200., 0.),
             Vec3::new(1., 0., 0.),
         ))];
 

@@ -11,14 +11,18 @@ use wgpu::{
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct RawParametricLine {
     p: [f32; 3],
+    _padding: u32,
     v: [f32; 3],
+    _padding2: u32,
 }
 
 impl RawParametricLine {
     fn from_parametric_line(line: &ParametricLine) -> Self {
         Self {
             p: line.p.to_array(),
+            _padding: 0,
             v: line.v.to_array(),
+            _padding2: 0,
         }
     }
 }
