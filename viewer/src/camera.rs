@@ -9,13 +9,13 @@ pub const OPENGL_TO_WGPU_MATRIX: Mat4 = Mat4::from_cols_array(&[
 ]);
 
 pub struct Camera {
-    eye: Vec3,
-    target: Vec3,
-    up: Vec3,
-    aspect: f32,
-    fovy: f32,
-    znear: f32,
-    zfar: f32,
+    pub eye: Vec3,
+    pub target: Vec3,
+    pub up: Vec3,
+    pub aspect: f32,
+    pub fovy: f32,
+    pub znear: f32,
+    pub zfar: f32,
 }
 
 impl Camera {
@@ -24,6 +24,6 @@ impl Camera {
 
         let proj = Mat4::perspective_lh(self.fovy.to_radians(), self.aspect, self.znear, self.zfar);
 
-        return;
+        return OPENGL_TO_WGPU_MATRIX * proj * view;
     }
 }

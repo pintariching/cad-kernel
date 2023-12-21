@@ -1,4 +1,5 @@
 use bytemuck::{Pod, Zeroable};
+use camera::Camera;
 use glam::Vec3;
 use kernel::{Line, ParametricLine};
 use line_rendering::LineState;
@@ -54,6 +55,7 @@ pub struct State {
     pub config: SurfaceConfiguration,
     pub line_state: LineState,
     pub clip_vertex_buffer: Buffer,
+    pub camera: Camera,
 }
 
 impl State {
@@ -94,7 +96,7 @@ impl State {
             .await
             .expect("Failed to create device");
 
-        let vert_shader = device.create_shader_module(include_wgsl!("vert_shader.wgsl"));
+        let vert_shader = device.create_shader_module(include_wgsl!("../shaders/vert_shader.wgsl"));
         let vert_shader_state = VertexState {
             module: &vert_shader,
             entry_point: "vs_main",
@@ -133,6 +135,16 @@ impl State {
 
         let line_state = LineState::new(lines, &device, &vert_shader_state, &config);
 
+        let camera = Camera {
+            eye: Vec3::new(0., 1., 2.),
+            target: Vec3::new(0., 0., 0.),
+            up: Vec3::Y,
+            aspect: config.width as f32 / config.height as f32,
+            fovy: 45.,
+            znear: 0.1,
+            zfar: 100.,
+        };
+
         surface.configure(&device, &config);
 
         Self {
@@ -144,6 +156,7 @@ impl State {
             config,
             line_state,
             clip_vertex_buffer,
+            camera,
         }
     }
 

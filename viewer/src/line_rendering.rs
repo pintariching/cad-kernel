@@ -49,7 +49,7 @@ impl LineState {
         vert_shader: &VertexState,
         config: &SurfaceConfiguration,
     ) -> Self {
-        let shader = device.create_shader_module(include_wgsl!("line_shader.wgsl"));
+        let shader = device.create_shader_module(include_wgsl!("../shaders/line_shader.wgsl"));
 
         let raw_lines = lines
             .iter()
