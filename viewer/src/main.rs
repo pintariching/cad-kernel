@@ -1,6 +1,8 @@
+use std::sync::Arc;
+
 use viewer::State;
 use wgpu::SurfaceError;
-use winit::event::{ElementState, Event, KeyboardInput, VirtualKeyCode, WindowEvent};
+use winit::event::{ElementState, Event, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoop};
 
 fn main() {
@@ -10,8 +12,9 @@ fn main() {
 async fn run() {
     env_logger::init();
 
-    let event_loop = EventLoop::new();
+    let event_loop = EventLoop::new().unwrap();
     let window = winit::window::Window::new(&event_loop).unwrap();
+    let window = Arc::new(window);
 
     let mut state = State::new(window).await;
 
@@ -27,7 +30,7 @@ async fn run() {
                         }
                         WindowEvent::CloseRequested
                         | WindowEvent::KeyboardInput {
-                            input:
+                            event:
                                 KeyboardInput {
                                     state: ElementState::Pressed,
                                     virtual_keycode: Some(VirtualKeyCode::Escape),

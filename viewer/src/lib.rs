@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use bytemuck::{Pod, Zeroable};
 use camera::Camera;
 use glam::Vec3;
@@ -46,20 +48,20 @@ const CLIP_VERTICES: &[RawVertex] = &[
     },
 ];
 
-pub struct State {
-    pub surface: Surface,
+pub struct State<'a> {
+    pub surface: Surface<'a>,
     pub device: Device,
     pub queue: Queue,
     pub size: PhysicalSize<u32>,
-    pub window: Window,
+    pub window: Arc<Window>,
     pub config: SurfaceConfiguration,
     pub line_state: LineState,
     pub clip_vertex_buffer: Buffer,
     pub camera: Camera,
 }
 
-impl State {
-    pub async fn new(window: Window) -> Self {
+impl<'a> State<'a> {
+    pub async fn new(window: Arc<Window>) -> Self {
         let size = window.inner_size();
 
         // The instance is a handle to our GPU
@@ -71,7 +73,7 @@ impl State {
 
         // The surface needs to live as long as the window that created it.
         // State owns the window, so this should be safe.
-        let surface = unsafe { instance.create_surface(&window) }.unwrap();
+        let surface = instance.create_surface(window.clone()).unwrap();
 
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
@@ -88,8 +90,8 @@ impl State {
             .request_device(
                 &wgpu::DeviceDescriptor {
                     label: None,
-                    features: wgpu::Features::empty(),
-                    limits: wgpu::Limits::downlevel_defaults(),
+                    required_features: wgpu::Features::empty(),
+                    required_limits: wgpu::Limits::downlevel_defaults(),
                 },
                 None,
             )
