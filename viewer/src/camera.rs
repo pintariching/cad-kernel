@@ -1,29 +1,86 @@
-use glam::{Mat4, Vec3};
+use bytemuck::{Pod, Zeroable};
+use glam::Vec3;
+use wgpu::util::{BufferInitDescriptor, DeviceExt};
+use wgpu::{
+    BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor,
+    BindGroupLayoutEntry, BindingType, Buffer, BufferBindingType, BufferUsages, Device,
+    ShaderStages,
+};
 
-#[rustfmt::skip]
-pub const OPENGL_TO_WGPU_MATRIX: Mat4 = Mat4::from_cols_array(&[
-    1.0, 0.0, 0.0, 0.0,
-    0.0, 1.0, 0.0, 0.0,
-    0.0, 0.0, 0.5, 0.5,
-    0.0, 0.0, 0.0, 1.0,
-]);
+pub struct CameraState {
+    pub camera: Camera,
+    pub uniform: CameraUniform,
+    pub buffer: Buffer,
+    pub bind_group: BindGroup,
+    pub bind_group_layout: BindGroupLayout,
+}
+
+impl CameraState {
+    pub fn new(camera: Camera, device: &Device) -> Self {
+        let uniform = CameraUniform::new_from_camera(&camera);
+
+        let buffer = device.create_buffer_init(&BufferInitDescriptor {
+            label: Some("Camera Buffer"),
+            contents: bytemuck::cast_slice(&[uniform]),
+            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+        });
+
+        let bind_group_layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+            label: Some("Camera Bind Group Layout"),
+            entries: &[BindGroupLayoutEntry {
+                binding: 0,
+                visibility: ShaderStages::FRAGMENT,
+                count: None,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+            }],
+        });
+
+        let bind_group = device.create_bind_group(&BindGroupDescriptor {
+            label: Some("Camera Bind Group"),
+            layout: &bind_group_layout,
+            entries: &[BindGroupEntry {
+                binding: 0,
+                resource: buffer.as_entire_binding(),
+            }],
+        });
+
+        Self {
+            camera,
+            uniform,
+            buffer,
+            bind_group,
+            bind_group_layout,
+        }
+    }
+}
 
 pub struct Camera {
     pub eye: Vec3,
+    pub width: f32,
     pub target: Vec3,
-    pub up: Vec3,
-    pub aspect: f32,
-    pub fovy: f32,
-    pub znear: f32,
-    pub zfar: f32,
+    pub height: f32,
 }
 
-impl Camera {
-    fn build_view_projection_matrix(&self) -> Mat4 {
-        let view = Mat4::look_at_rh(self.eye, self.target, self.up);
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+pub struct CameraUniform {
+    pub eye: [f32; 3],
+    pub width: f32,
+    pub target: [f32; 3],
+    pub height: f32,
+}
 
-        let proj = Mat4::perspective_lh(self.fovy.to_radians(), self.aspect, self.znear, self.zfar);
-
-        return OPENGL_TO_WGPU_MATRIX * proj * view;
+impl CameraUniform {
+    pub fn new_from_camera(camera: &Camera) -> Self {
+        Self {
+            eye: camera.eye.to_array(),
+            width: camera.width,
+            target: camera.target.to_array(),
+            height: camera.height,
+        }
     }
 }

@@ -2,8 +2,9 @@ use std::sync::Arc;
 
 use viewer::State;
 use wgpu::SurfaceError;
-use winit::event::{ElementState, Event, WindowEvent};
-use winit::event_loop::{ControlFlow, EventLoop};
+use winit::event::{Event, KeyEvent, WindowEvent};
+use winit::event_loop::EventLoop;
+use winit::keyboard::{Key, NamedKey};
 
 fn main() {
     smol::block_on(run());
@@ -18,42 +19,29 @@ async fn run() {
 
     let mut state = State::new(window).await;
 
-    event_loop.run(move |event, _, control_flow| {
-        *control_flow = ControlFlow::Wait;
-
-        match event {
-            Event::WindowEvent { event, .. } => {
-                if !state.input(&event) {
-                    match event {
-                        WindowEvent::Resized(size) => {
-                            state.resize(size);
-                        }
-                        WindowEvent::CloseRequested
-                        | WindowEvent::KeyboardInput {
-                            event:
-                                KeyboardInput {
-                                    state: ElementState::Pressed,
-                                    virtual_keycode: Some(VirtualKeyCode::Escape),
-                                    ..
-                                },
-                            ..
-                        } => *control_flow = ControlFlow::Exit,
-                        _ => (),
-                    }
-                }
+    let _ = event_loop.run(move |event, target| match event {
+        Event::WindowEvent { event, .. } => match event {
+            WindowEvent::Resized(size) => state.resize(size),
+            WindowEvent::CloseRequested
+            | WindowEvent::KeyboardInput {
+                event:
+                    KeyEvent {
+                        logical_key: Key::Named(NamedKey::Escape),
+                        ..
+                    },
+                ..
+            } => {
+                target.exit();
             }
-            Event::RedrawRequested(window_id) if window_id == state.window().id() => {
-                state.update();
-
-                match state.render() {
-                    Ok(_) => (),
-                    Err(SurfaceError::Lost) => state.resize(state.size),
-                    Err(SurfaceError::OutOfMemory) => *control_flow = ControlFlow::Exit,
-                    Err(e) => eprintln!("{:?}", e),
-                }
-            }
-            Event::MainEventsCleared => state.window().request_redraw(),
-            _ => {}
-        }
+            WindowEvent::KeyboardInput { event, .. } => state.input(&event),
+            WindowEvent::RedrawRequested => match state.render() {
+                Ok(_) => (),
+                Err(SurfaceError::Lost) => state.resize(state.size),
+                Err(SurfaceError::OutOfMemory) => target.exit(),
+                Err(e) => eprintln!("{:?}", e),
+            },
+            _ => state.update(),
+        },
+        _ => (),
     });
 }

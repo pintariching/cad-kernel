@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
 use bytemuck::{Pod, Zeroable};
-use camera::Camera;
+use camera::{Camera, CameraState};
 use glam::Vec3;
-use kernel::{Line, ParametricLine};
+use kernel::{Line, TwoPointLine};
 use line_rendering::LineState;
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use wgpu::{
@@ -14,7 +14,7 @@ use wgpu::{
     VertexStepMode,
 };
 use winit::dpi::PhysicalSize;
-use winit::event::WindowEvent;
+use winit::event::KeyEvent;
 use winit::window::Window;
 
 mod camera;
@@ -57,7 +57,7 @@ pub struct State<'a> {
     pub config: SurfaceConfiguration,
     pub line_state: LineState,
     pub clip_vertex_buffer: Buffer,
-    pub camera: Camera,
+    pub camera_state: CameraState,
 }
 
 impl<'a> State<'a> {
@@ -98,7 +98,8 @@ impl<'a> State<'a> {
             .await
             .expect("Failed to create device");
 
-        let vert_shader = device.create_shader_module(include_wgsl!("../shaders/vert_shader.wgsl"));
+        let vert_shader =
+            device.create_shader_module(include_wgsl!("../shaders/base_vert_shader.wgsl"));
         let vert_shader_state = VertexState {
             module: &vert_shader,
             entry_point: "vs_main",
@@ -130,22 +131,50 @@ impl<'a> State<'a> {
             view_formats: vec![],
         };
 
-        let lines = vec![Line::Parametric(ParametricLine::new(
-            Vec3::new(500., 200., 0.),
-            Vec3::new(1., 0., 0.),
+        let lines = vec![Line::TwoPoint(TwoPointLine::new(
+            Vec3::new(-1., -2., 3.),
+            Vec3::new(1., 1., 1.),
         ))];
 
-        let line_state = LineState::new(lines, &device, &vert_shader_state, &config);
-
         let camera = Camera {
-            eye: Vec3::new(0., 1., 2.),
+            eye: Vec3::new(0., 0., 10.),
             target: Vec3::new(0., 0., 0.),
-            up: Vec3::Y,
-            aspect: config.width as f32 / config.height as f32,
-            fovy: 45.,
-            znear: 0.1,
-            zfar: 100.,
+            width: size.width as f32,
+            height: size.height as f32,
         };
+
+        let camera_normal = (camera.target - camera.eye).normalize();
+        let projected_lines = lines
+            .iter()
+            .map(|l| {
+                let l = l.to_two_point();
+
+                let a_e = l.a - camera.eye;
+                let b_e = l.b - camera.eye;
+
+                let w_a = a_e.project_onto(camera_normal);
+                let w_b = b_e.project_onto(camera_normal);
+
+                dbg!(&w_a);
+                dbg!(&w_b);
+
+                Line::TwoPoint(TwoPointLine {
+                    a: l.a - w_a,
+                    b: l.b - w_b,
+                })
+            })
+            .collect();
+
+        dbg!(&projected_lines);
+
+        let camera_state = CameraState::new(camera, &device);
+        let line_state = LineState::new(
+            projected_lines,
+            &device,
+            &vert_shader_state,
+            &config,
+            &camera_state.bind_group_layout,
+        );
 
         surface.configure(&device, &config);
 
@@ -158,7 +187,7 @@ impl<'a> State<'a> {
             config,
             line_state,
             clip_vertex_buffer,
-            camera,
+            camera_state,
         }
     }
 
@@ -178,13 +207,16 @@ impl<'a> State<'a> {
         }
     }
 
-    pub fn input(&mut self, event: &WindowEvent) -> bool {
-        match event {
-            _ => false,
-        }
-    }
+    pub fn input(&mut self, event: &KeyEvent) {}
 
-    pub fn update(&mut self) {}
+    pub fn update(&mut self) {
+        self.camera_state.camera.eye.x += 1.;
+        self.queue.write_buffer(
+            &self.camera_state.buffer,
+            0,
+            bytemuck::cast_slice(&[self.camera_state.uniform]),
+        );
+    }
 
     pub fn render(&mut self) -> Result<(), SurfaceError> {
         let frame = self.surface.get_current_texture()?;
@@ -216,8 +248,9 @@ impl<'a> State<'a> {
                 occlusion_query_set: None,
             });
             rpass.set_pipeline(&self.line_state.render_pipeline);
-            rpass.set_bind_group(0, &self.line_state.line_data_bind_group, &[]);
-            rpass.set_bind_group(1, &self.line_state.line_bind_group, &[]);
+            rpass.set_bind_group(0, &self.camera_state.bind_group, &[]);
+            rpass.set_bind_group(1, &self.line_state.line_data_bind_group, &[]);
+            rpass.set_bind_group(2, &self.line_state.line_bind_group, &[]);
             rpass.set_vertex_buffer(0, self.clip_vertex_buffer.slice(..));
             rpass.draw(0..3, 0..1);
         }

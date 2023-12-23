@@ -1,27 +1,25 @@
 use bytemuck::{Pod, Zeroable};
-use kernel::{Line, ParametricLine};
+use kernel::Line;
+use wgpu::include_wgsl;
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
-use wgpu::{
-    include_wgsl, BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayoutDescriptor,
-    BindGroupLayoutEntry, BindingType, Buffer, BufferBindingType, BufferUsages, Device,
-    RenderPipeline, ShaderStages, SurfaceConfiguration, VertexState,
-};
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
-struct RawParametricLine {
-    p: [f32; 3],
+struct RawTwoPointLine {
+    a: [f32; 3],
     _padding: u32,
-    v: [f32; 3],
+    b: [f32; 3],
     _padding2: u32,
 }
 
-impl RawParametricLine {
-    fn from_parametric_line(line: &ParametricLine) -> Self {
+impl RawTwoPointLine {
+    fn from_line(line: &Line) -> Self {
+        let l = line.to_two_point();
+
         Self {
-            p: line.p.to_array(),
+            a: l.a.to_array(),
             _padding: 0,
-            v: line.v.to_array(),
+            b: l.b.to_array(),
             _padding2: 0,
         }
     }
@@ -30,61 +28,62 @@ impl RawParametricLine {
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct LineData {
-    count: u32,
+    count: i32,
 }
 
 pub struct LineState {
     pub lines: Vec<Line>,
-    pub line_data_buffer: Buffer,
-    pub line_data_bind_group: BindGroup,
-    pub line_buffer: Buffer,
-    pub line_bind_group: BindGroup,
-    pub render_pipeline: RenderPipeline,
+    pub line_data_buffer: wgpu::Buffer,
+    pub line_data_bind_group: wgpu::BindGroup,
+    pub line_buffer: wgpu::Buffer,
+    pub line_bind_group: wgpu::BindGroup,
+    pub render_pipeline: wgpu::RenderPipeline,
 }
 
 impl LineState {
     pub fn new(
         lines: Vec<Line>,
-        device: &Device,
-        vert_shader: &VertexState,
-        config: &SurfaceConfiguration,
+        device: &wgpu::Device,
+        vert_shader: &wgpu::VertexState,
+        config: &wgpu::SurfaceConfiguration,
+        camera_bind_group_layout: &wgpu::BindGroupLayout,
     ) -> Self {
         let shader = device.create_shader_module(include_wgsl!("../shaders/line_shader.wgsl"));
 
         let raw_lines = lines
             .iter()
-            .map(|l| RawParametricLine::from_parametric_line(l.to_parametric()))
-            .collect::<Vec<RawParametricLine>>();
+            .map(|l| RawTwoPointLine::from_line(l))
+            .collect::<Vec<RawTwoPointLine>>();
 
         let line_data = LineData {
-            count: lines.len() as u32,
+            count: lines.len() as i32,
         };
 
         let line_data_buffer = device.create_buffer_init(&BufferInitDescriptor {
             label: Some("Line Data Buffer"),
             contents: bytemuck::cast_slice(&[line_data]),
-            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
         let line_data_bind_group_layout =
-            device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Line Data Bind Group Layout"),
-                entries: &[BindGroupLayoutEntry {
+                entries: &[wgpu::BindGroupLayoutEntry {
                     binding: 0,
-                    visibility: ShaderStages::FRAGMENT,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
                     count: None,
-                    ty: BindingType::Buffer {
-                        ty: BufferBindingType::Uniform,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
                         min_binding_size: None,
                     },
                 }],
             });
 
-        let line_data_bind_group = device.create_bind_group(&BindGroupDescriptor {
+        let line_data_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Line Data Bind Group"),
             layout: &line_data_bind_group_layout,
-            entries: &[BindGroupEntry {
+            entries: &[wgpu::BindGroupEntry {
                 binding: 0,
                 resource: line_data_buffer.as_entire_binding(),
             }],
@@ -93,27 +92,28 @@ impl LineState {
         let line_buffer = device.create_buffer_init(&BufferInitDescriptor {
             label: Some("Line Buffer"),
             contents: bytemuck::cast_slice(raw_lines.as_slice()),
-            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         });
 
-        let line_bind_group_layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-            label: Some("Line Bind Group Layout"),
-            entries: &[BindGroupLayoutEntry {
-                binding: 0,
-                visibility: ShaderStages::FRAGMENT,
-                count: None,
-                ty: BindingType::Buffer {
-                    ty: BufferBindingType::Storage { read_only: true },
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-            }],
-        });
+        let line_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Line Bind Group Layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    count: None,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                }],
+            });
 
-        let line_bind_group = device.create_bind_group(&BindGroupDescriptor {
+        let line_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Line Bind Group"),
             layout: &line_bind_group_layout,
-            entries: &[BindGroupEntry {
+            entries: &[wgpu::BindGroupEntry {
                 binding: 0,
                 resource: line_buffer.as_entire_binding(),
             }],
@@ -121,7 +121,11 @@ impl LineState {
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: None,
-            bind_group_layouts: &[&line_data_bind_group_layout, &line_bind_group_layout],
+            bind_group_layouts: &[
+                &camera_bind_group_layout,
+                &line_data_bind_group_layout,
+                &line_bind_group_layout,
+            ],
             push_constant_ranges: &[],
         });
 
@@ -139,7 +143,7 @@ impl LineState {
                 })],
             }),
             primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
+                topology: wgpu::PrimitiveTopology::LineList,
                 strip_index_format: None,
                 front_face: wgpu::FrontFace::Ccw,
                 cull_mode: Some(wgpu::Face::Back),
