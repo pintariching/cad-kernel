@@ -57,6 +57,20 @@ impl TwoPointLine {
     pub fn new(a: Vec3, b: Vec3) -> Self {
         Self { a, b }
     }
+
+    pub fn normal(&self) -> Vec3 {
+        (self.b - self.a).normalize()
+    }
+
+    pub fn project_to_plane(&self, plane_normal: Vec3, plane_point: Vec3) -> TwoPointLine {
+        let w_a = plane_point - self.a;
+        let p_a = w_a.dot(plane_normal) * plane_normal + self.a;
+
+        let w_b = plane_point - self.b;
+        let p_b = w_b.dot(plane_normal) * plane_normal + self.b;
+
+        TwoPointLine { a: p_a, b: p_b }
+    }
 }
 
 #[derive(Debug)]
@@ -65,4 +79,35 @@ pub struct ImplicitLine {
     pub b: f32,
     pub c: f32,
     pub d: f32,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_project_two_point_line_to_plane() {
+        let plane_normal = Vec3::new(0., 0., 1.);
+        let plane_point = Vec3::new(0., 0., 0.);
+
+        let line = TwoPointLine::new(Vec3::new(1., 1., 1.), Vec3::new(-1., -1., 1.));
+
+        let projected_line = line.project_to_plane(plane_normal, plane_point);
+
+        assert_eq!(projected_line.a, Vec3::new(1., 1., 0.));
+        assert_eq!(projected_line.b, Vec3::new(-1., -1., 0.));
+    }
+
+    #[test]
+    fn test_project_two_point_line_to_inclined_plane() {
+        let plane_normal = Vec3::new(0., 0.5, 0.5).normalize();
+        let plane_point = Vec3::new(0., 0., 0.);
+
+        let line = TwoPointLine::new(Vec3::new(1., 1., 2.), Vec3::new(-1., -1., 2.));
+
+        let projected_line = line.project_to_plane(plane_normal, plane_point);
+
+        assert_eq!(projected_line.a, Vec3::new(1., -0.49999988, 0.5000001));
+        assert_eq!(projected_line.b, Vec3::new(-1., -1.5, 1.5));
+    }
 }

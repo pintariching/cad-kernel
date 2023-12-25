@@ -1,62 +1,26 @@
-use std::sync::Arc;
-
-use bytemuck::{Pod, Zeroable};
-use camera::{Camera, CameraState};
 use glam::Vec3;
-use kernel::{Line, TwoPointLine};
-use line_rendering::LineState;
-use wgpu::util::{BufferInitDescriptor, DeviceExt};
-use wgpu::{
-    include_wgsl, vertex_attr_array, Backends, Buffer, BufferAddress, BufferUsages, Color,
-    CommandEncoderDescriptor, Device, Instance, InstanceDescriptor, LoadOp, Operations, Queue,
-    RenderPassColorAttachment, RenderPassDescriptor, StoreOp, Surface, SurfaceConfiguration,
-    SurfaceError, TextureUsages, TextureViewDescriptor, VertexBufferLayout, VertexState,
-    VertexStepMode,
-};
+use line::{get_projected_vertices, LineState};
+use std::sync::Arc;
 use winit::dpi::PhysicalSize;
-use winit::event::KeyEvent;
+use winit::event::{ElementState, KeyEvent};
 use winit::window::Window;
 
+use kernel::{Line, TwoPointLine};
+
 mod camera;
-mod line_rendering;
+mod line;
+mod vertex;
 
-#[repr(C)]
-#[derive(Clone, Copy, Pod, Zeroable)]
-struct RawVertex {
-    position: [f32; 3],
-}
-
-impl RawVertex {
-    fn desc() -> VertexBufferLayout<'static> {
-        VertexBufferLayout {
-            array_stride: std::mem::size_of::<RawVertex>() as BufferAddress,
-            step_mode: VertexStepMode::Vertex,
-            attributes: &vertex_attr_array![0 => Float32x3],
-        }
-    }
-}
-
-const CLIP_VERTICES: &[RawVertex] = &[
-    RawVertex {
-        position: [-1., 1., 0.],
-    },
-    RawVertex {
-        position: [-1., -3., 0.],
-    },
-    RawVertex {
-        position: [3., 1., 0.],
-    },
-];
+use camera::{Camera, CameraState};
 
 pub struct State<'a> {
-    pub surface: Surface<'a>,
-    pub device: Device,
-    pub queue: Queue,
+    pub surface: wgpu::Surface<'a>,
+    pub device: wgpu::Device,
+    pub queue: wgpu::Queue,
     pub size: PhysicalSize<u32>,
     pub window: Arc<Window>,
-    pub config: SurfaceConfiguration,
+    pub config: wgpu::SurfaceConfiguration,
     pub line_state: LineState,
-    pub clip_vertex_buffer: Buffer,
     pub camera_state: CameraState,
 }
 
@@ -66,8 +30,8 @@ impl<'a> State<'a> {
 
         // The instance is a handle to our GPU
         // Backends::all => Vulkan + Metal + DX12 + Browser WebGPU
-        let instance = Instance::new(InstanceDescriptor {
-            backends: Backends::all(),
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::all(),
             ..Default::default()
         });
 
@@ -98,20 +62,6 @@ impl<'a> State<'a> {
             .await
             .expect("Failed to create device");
 
-        let vert_shader =
-            device.create_shader_module(include_wgsl!("../shaders/base_vert_shader.wgsl"));
-        let vert_shader_state = VertexState {
-            module: &vert_shader,
-            entry_point: "vs_main",
-            buffers: &[RawVertex::desc()],
-        };
-
-        let clip_vertex_buffer = device.create_buffer_init(&BufferInitDescriptor {
-            label: Some("Clip Vertex Buffer"),
-            contents: bytemuck::cast_slice(CLIP_VERTICES),
-            usage: BufferUsages::VERTEX,
-        });
-
         let surface_caps = surface.get_capabilities(&adapter);
         let surface_format = surface_caps
             .formats
@@ -121,8 +71,8 @@ impl<'a> State<'a> {
             .next()
             .unwrap_or(surface_caps.formats[0]);
 
-        let config = SurfaceConfiguration {
-            usage: TextureUsages::RENDER_ATTACHMENT,
+        let config = wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: surface_format,
             width: size.width,
             height: size.height,
@@ -131,50 +81,23 @@ impl<'a> State<'a> {
             view_formats: vec![],
         };
 
-        let lines = vec![Line::TwoPoint(TwoPointLine::new(
-            Vec3::new(-1., -2., 3.),
-            Vec3::new(1., 1., 1.),
-        ))];
+        let lines = vec![TwoPointLine::new(
+            Vec3::new(-0.5, 0., 0.),
+            Vec3::new(0., 0.5, 0.),
+        )];
 
         let camera = Camera {
             eye: Vec3::new(0., 0., 10.),
             target: Vec3::new(0., 0., 0.),
-            width: size.width as f32,
-            height: size.height as f32,
+            up: Vec3::Y,
+            aspect: config.width as f32 / config.height as f32,
+            fovy: 45.,
+            znear: 0.1,
+            zfar: 100.,
         };
 
-        let camera_normal = (camera.target - camera.eye).normalize();
-        let projected_lines = lines
-            .iter()
-            .map(|l| {
-                let l = l.to_two_point();
-
-                let a_e = l.a - camera.eye;
-                let b_e = l.b - camera.eye;
-
-                let w_a = a_e.project_onto(camera_normal);
-                let w_b = b_e.project_onto(camera_normal);
-
-                dbg!(&w_a);
-                dbg!(&w_b);
-
-                Line::TwoPoint(TwoPointLine {
-                    a: l.a - w_a,
-                    b: l.b - w_b,
-                })
-            })
-            .collect();
-
-        dbg!(&projected_lines);
-
         let camera_state = CameraState::new(camera, &device);
-        let line_state = LineState::new(
-            projected_lines,
-            &device,
-            &vert_shader_state,
-            &config,
-            &camera_state.bind_group_layout,
-        );
+        let line_state = LineState::new(lines, &device, &config, &camera_state);
 
         surface.configure(&device, &config);
 
@@ -186,7 +109,6 @@ impl<'a> State<'a> {
             window,
             config,
             line_state,
-            clip_vertex_buffer,
             camera_state,
         }
     }
@@ -207,10 +129,21 @@ impl<'a> State<'a> {
         }
     }
 
-    pub fn input(&mut self, event: &KeyEvent) {}
+    pub fn input(&mut self, event: &KeyEvent, element_state: &ElementState) {
+        self.camera_state
+            .controller
+            .process_events(event, element_state);
+    }
 
     pub fn update(&mut self) {
-        self.camera_state.camera.eye.x += 1.;
+        self.camera_state
+            .controller
+            .update_camera(&mut self.camera_state.camera);
+
+        self.camera_state
+            .uniform
+            .update_view_proj(&self.camera_state.camera);
+
         self.queue.write_buffer(
             &self.camera_state.buffer,
             0,
@@ -218,29 +151,31 @@ impl<'a> State<'a> {
         );
     }
 
-    pub fn render(&mut self) -> Result<(), SurfaceError> {
+    pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
         let frame = self.surface.get_current_texture()?;
 
-        let view = frame.texture.create_view(&TextureViewDescriptor::default());
+        let view = frame
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
 
         let mut encoder = self
             .device
-            .create_command_encoder(&CommandEncoderDescriptor { label: None });
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
         {
-            let mut rpass = encoder.begin_render_pass(&RenderPassDescriptor {
+            let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: None,
-                color_attachments: &[Some(RenderPassColorAttachment {
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
                     resolve_target: None,
-                    ops: Operations {
-                        load: LoadOp::Clear(Color {
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
                             r: 0.1,
                             g: 0.1,
                             b: 0.1,
                             a: 1.,
                         }),
-                        store: StoreOp::Store,
+                        store: wgpu::StoreOp::Store,
                     },
                 })],
                 depth_stencil_attachment: None,
@@ -249,9 +184,7 @@ impl<'a> State<'a> {
             });
             rpass.set_pipeline(&self.line_state.render_pipeline);
             rpass.set_bind_group(0, &self.camera_state.bind_group, &[]);
-            rpass.set_bind_group(1, &self.line_state.line_data_bind_group, &[]);
-            rpass.set_bind_group(2, &self.line_state.line_bind_group, &[]);
-            rpass.set_vertex_buffer(0, self.clip_vertex_buffer.slice(..));
+            rpass.set_vertex_buffer(0, self.line_state.line_buffer.slice(..));
             rpass.draw(0..3, 0..1);
         }
 
