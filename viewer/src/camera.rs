@@ -1,11 +1,7 @@
 use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Vec3};
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
-use wgpu::{
-    BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor,
-    BindGroupLayoutEntry, BindingType, Buffer, BufferBindingType, BufferUsages, Device,
-    ShaderStages,
-};
+use wgpu::BindGroupDescriptor;
 use winit::event::{ElementState, KeyEvent};
 use winit::keyboard::{KeyCode, PhysicalKey};
 
@@ -13,43 +9,71 @@ pub struct CameraState {
     pub camera: Camera,
     pub controller: CameraController,
     pub uniform: CameraUniform,
-    pub buffer: Buffer,
-    pub bind_group: BindGroup,
-    pub bind_group_layout: BindGroupLayout,
+    pub buffer: wgpu::Buffer,
+    pub sdf_uniform: CameraUniformSDF,
+    pub sdf_buffer: wgpu::Buffer,
+    pub bind_group: wgpu::BindGroup,
+    pub bind_group_layout: wgpu::BindGroupLayout,
 }
 
 impl CameraState {
-    pub fn new(camera: Camera, device: &Device) -> Self {
+    pub fn new(camera: Camera, device: &wgpu::Device) -> Self {
         let mut uniform = CameraUniform::new();
         uniform.update_view_proj(&camera);
 
         let buffer = device.create_buffer_init(&BufferInitDescriptor {
             label: Some("Camera Buffer"),
             contents: bytemuck::cast_slice(&[uniform]),
-            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
-        let bind_group_layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+        let sdf_uniform = CameraUniformSDF::from_camera(&camera);
+
+        let sdf_buffer = device.create_buffer_init(&BufferInitDescriptor {
+            label: Some("SDF Camera Buffer"),
+            contents: bytemuck::cast_slice(&[sdf_uniform]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
+        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("Camera Bind Group Layout"),
-            entries: &[BindGroupLayoutEntry {
-                binding: 0,
-                visibility: ShaderStages::VERTEX,
-                count: None,
-                ty: BindingType::Buffer {
-                    ty: BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    count: None,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
                 },
-            }],
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    count: None,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                },
+            ],
         });
 
         let bind_group = device.create_bind_group(&BindGroupDescriptor {
             label: Some("Camera Bind Group"),
             layout: &bind_group_layout,
-            entries: &[BindGroupEntry {
-                binding: 0,
-                resource: buffer.as_entire_binding(),
-            }],
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: sdf_buffer.as_entire_binding(),
+                },
+            ],
         });
 
         let controller = CameraController::new(0.005);
@@ -59,6 +83,8 @@ impl CameraState {
             controller,
             uniform,
             buffer,
+            sdf_uniform,
+            sdf_buffer,
             bind_group,
             bind_group_layout,
         }
@@ -73,6 +99,8 @@ pub struct Camera {
     pub fovy: f32,
     pub znear: f32,
     pub zfar: f32,
+    pub width: u32,
+    pub height: u32,
 }
 
 impl Camera {
@@ -104,6 +132,33 @@ impl CameraUniform {
 
     pub fn update_view_proj(&mut self, camera: &Camera) {
         self.view_proj = camera.build_view_projection_matrix().to_cols_array_2d()
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+pub struct CameraUniformSDF {
+    pub eye: [f32; 3],
+    pub width: u32,
+    pub target: [f32; 3],
+    pub height: u32,
+}
+
+impl CameraUniformSDF {
+    pub fn from_camera(camera: &Camera) -> Self {
+        Self {
+            eye: camera.eye.to_array(),
+            target: camera.target.to_array(),
+            width: camera.width,
+            height: camera.height,
+        }
+    }
+
+    pub fn update(&mut self, camera: &Camera) {
+        self.eye = camera.eye.to_array();
+        self.target = camera.target.to_array();
+        self.width = camera.width;
+        self.height = camera.height;
     }
 }
 

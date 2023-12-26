@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use viewer::State;
 use wgpu::SurfaceError;
-use winit::event::{ElementState, Event, KeyEvent, WindowEvent};
+use winit::event::{Event, KeyEvent, WindowEvent};
 use winit::event_loop::EventLoop;
 use winit::keyboard::{Key, NamedKey};
 

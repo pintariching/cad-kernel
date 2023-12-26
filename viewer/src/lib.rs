@@ -1,17 +1,19 @@
 use glam::Vec3;
-use line::{get_projected_vertices, LineState};
+use line_sdf::LineStateSDF;
 use std::sync::Arc;
+use wgpu::BufferAddress;
 use winit::dpi::PhysicalSize;
 use winit::event::{ElementState, KeyEvent};
 use winit::window::Window;
 
-use kernel::{Line, TwoPointLine};
+use kernel::TwoPointLine;
 
 mod camera;
 mod line;
+mod line_sdf;
 mod vertex;
 
-use camera::{Camera, CameraState};
+use camera::{Camera, CameraState, CameraUniform};
 
 pub struct State<'a> {
     pub surface: wgpu::Surface<'a>,
@@ -20,7 +22,7 @@ pub struct State<'a> {
     pub size: PhysicalSize<u32>,
     pub window: Arc<Window>,
     pub config: wgpu::SurfaceConfiguration,
-    pub line_state: LineState,
+    pub line_state: LineStateSDF,
     pub camera_state: CameraState,
 }
 
@@ -83,21 +85,24 @@ impl<'a> State<'a> {
 
         let lines = vec![TwoPointLine::new(
             Vec3::new(-0.5, 0., 0.),
-            Vec3::new(0., 0.5, 0.),
+            Vec3::new(0.5, 0., 0.),
         )];
 
         let camera = Camera {
-            eye: Vec3::new(0., 0., 10.),
+            eye: Vec3::new(0., 0., 5.),
             target: Vec3::new(0., 0., 0.),
             up: Vec3::Y,
             aspect: config.width as f32 / config.height as f32,
             fovy: 45.,
             znear: 0.1,
             zfar: 100.,
+            width: size.width,
+            height: size.height,
         };
 
         let camera_state = CameraState::new(camera, &device);
-        let line_state = LineState::new(lines, &device, &config, &camera_state);
+        // let line_state = LineState::new(lines, &device, &config, &camera_state);
+        let line_sdf_state = LineStateSDF::new(lines, &device, &config, &camera_state);
 
         surface.configure(&device, &config);
 
@@ -108,7 +113,7 @@ impl<'a> State<'a> {
             size,
             window,
             config,
-            line_state,
+            line_state: line_sdf_state,
             camera_state,
         }
     }
@@ -123,6 +128,9 @@ impl<'a> State<'a> {
             self.config.height = new_size.height;
             self.config.width = new_size.width;
             self.surface.configure(&self.device, &self.config);
+
+            self.camera_state.camera.width = new_size.width;
+            self.camera_state.camera.height = new_size.height;
 
             // On macos the window needs to be redrawn manually after resizing
             self.window().request_redraw();
@@ -148,6 +156,16 @@ impl<'a> State<'a> {
             &self.camera_state.buffer,
             0,
             bytemuck::cast_slice(&[self.camera_state.uniform]),
+        );
+
+        self.camera_state
+            .sdf_uniform
+            .update(&self.camera_state.camera);
+
+        self.queue.write_buffer(
+            &self.camera_state.sdf_buffer,
+            0,
+            bytemuck::cast_slice(&[self.camera_state.sdf_uniform]),
         );
     }
 
@@ -184,7 +202,8 @@ impl<'a> State<'a> {
             });
             rpass.set_pipeline(&self.line_state.render_pipeline);
             rpass.set_bind_group(0, &self.camera_state.bind_group, &[]);
-            rpass.set_vertex_buffer(0, self.line_state.line_buffer.slice(..));
+            rpass.set_bind_group(1, &self.line_state.bind_group, &[]);
+            //rpass.set_vertex_buffer(0, self.line_state.line_buffer.slice(..));
             rpass.draw(0..3, 0..1);
         }
 

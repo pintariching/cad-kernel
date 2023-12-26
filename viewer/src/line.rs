@@ -1,7 +1,7 @@
 use std::f32::consts::PI;
 
 use glam::{Mat3, Vec3};
-use kernel::{Line, TwoPointLine};
+use kernel::TwoPointLine;
 use wgpu::include_wgsl;
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 
