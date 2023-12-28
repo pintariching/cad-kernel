@@ -89,7 +89,7 @@ impl<'a> State<'a> {
         )];
 
         let camera = Camera {
-            eye: Vec3::new(0., 0., 5.),
+            eye: Vec3::new(0., 1., 5.),
             target: Vec3::new(0., 0., 0.),
             up: Vec3::Y,
             aspect: config.width as f32 / config.height as f32,
