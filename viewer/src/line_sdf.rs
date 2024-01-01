@@ -1,5 +1,5 @@
 use bytemuck::{Pod, Zeroable};
-use kernel::TwoPointLine;
+use kernel::line::TwoPointLine;
 use wgpu::include_wgsl;
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 

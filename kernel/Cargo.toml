@@ -7,4 +7,3 @@ edition = "2021"
 
 [dependencies]
 glam = "0.25.0"
-bytemuck = { version = "1.14", features = ["derive"] }

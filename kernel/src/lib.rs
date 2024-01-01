@@ -1,7 +1,7 @@
-mod line;
-mod surface;
-mod vertex;
+mod boundary_geometry;
+mod geometry;
+mod sketch;
+mod tesselation;
 
-pub use line::*;
-pub use surface::*;
-pub use vertex::*;
+pub use geometry::*;
+pub use tesselation::*;

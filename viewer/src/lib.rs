@@ -1,19 +1,17 @@
 use glam::Vec3;
+use kernel::line::TwoPointLine;
 use line_sdf::LineStateSDF;
 use std::sync::Arc;
-use wgpu::BufferAddress;
 use winit::dpi::PhysicalSize;
 use winit::event::{ElementState, KeyEvent};
 use winit::window::Window;
-
-use kernel::TwoPointLine;
 
 mod camera;
 mod line;
 mod line_sdf;
 mod vertex;
 
-use camera::{Camera, CameraState, CameraUniform};
+use camera::{Camera, CameraState};
 
 pub struct State<'a> {
     pub surface: wgpu::Surface<'a>,
@@ -83,13 +81,13 @@ impl<'a> State<'a> {
             view_formats: vec![],
         };
 
-        let lines = vec![TwoPointLine::new(
-            Vec3::new(-0.5, 0., 0.),
-            Vec3::new(0.5, 0., 0.),
-        )];
+        let lines = vec![
+            TwoPointLine::new(Vec3::new(5., 5., 0.), Vec3::new(-5., -5., 0.)),
+            TwoPointLine::new(Vec3::new(5., 5., 0.), Vec3::new(10., 0., 0.)),
+        ];
 
         let camera = Camera {
-            eye: Vec3::new(0., 1., 5.),
+            eye: Vec3::new(0., 0., 10.),
             target: Vec3::new(0., 0., 0.),
             up: Vec3::Y,
             aspect: config.width as f32 / config.height as f32,

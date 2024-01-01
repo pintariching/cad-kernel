@@ -24,7 +24,7 @@ var<uniform> camera_sdf: CameraUniformSDF;
 var<storage, read> lines: array<Line>;
 
 fn get_camera_ray_dir(uv: vec2<f32>, cam_pos: vec3<f32>, cam_target: vec3<f32>) -> vec3<f32> {
-    let cam_forward = normalize(camera_sdf.look_at - camera_sdf.eye);
+    let cam_forward = normalize(cam_target - cam_pos);
     let cam_right = normalize(cross(vec3<f32>(0., 1., 0.), cam_forward));
     let cam_up = normalize(cross(cam_forward, cam_right));
 
@@ -38,19 +38,35 @@ fn sd_sphere(p: vec3<f32>, r: f32) -> f32 {
     return length(p) - r;
 }
 
-fn sd_box(p: vec3<f32>, b: vec3<f32>) -> f32 {
-    let q = abs(p) - b;
-    return length(max(q, 0.)) + min(max(q.x, max(q.y, q.z)), 0.);
-}
+fn sd_capsule(p: vec3<f32>, a: vec3<f32>, b: vec3<f32>, r: f32) -> f32 {
+    let pa = p - a;
+    let ba = b - a;
 
-fn sd_torus(p: vec3<f32>, t: vec2<f32>) -> f32 {
-    let q = vec2(length(p.xz) - t.x, p.y);
+    let h = clamp(dot(pa, ba) / dot(ba, ba), 0., 1.);
+
+    return length(pa - ba * h) - r;
 }
 
 fn sdf(p: vec3<f32>) -> f32 {
+    var t = 10.;
 
-    //let t = sd_sphere(p - vec3<f32>(1., 0., 0.), 3.);
-    let t = sd_box(p, vec3<f32>(1., 1., 1.));
+    for (var i = 0; i < number_of_lines(); i++) {
+        let line = lines[i];
+        let c = sd_capsule(p, line.a, line.b, 1.);
+
+        if c < t {
+            t = c;
+        }
+    }
+
+    // let t = sd_capsule(p, vec3(-5., -5., 0.), vec3(5., 5., 0.), 1.);
+    // let s = sd_sphere(p - vec3(1., 0., 0.), 1.);
+
+    // if s < t {
+    //     return s;
+    // } else {
+    //     return t;
+    // }
 
     return t;
 }
@@ -58,7 +74,7 @@ fn sdf(p: vec3<f32>) -> f32 {
 fn cast_ray(ray_origin: vec3<f32>, ray_dir: vec3<f32>) -> f32 {
     var t = 0.;
 
-    for (var i = 0; i < 64; i++) {
+    for (var i = 0; i < 128; i++) {
         let res = sdf(ray_origin + ray_dir * t);
 
         if res < (0.0001 * t) {
@@ -74,15 +90,26 @@ fn cast_ray(ray_origin: vec3<f32>, ray_dir: vec3<f32>) -> f32 {
 fn render(ray_origin: vec3<f32>, ray_dir: vec3<f32>) -> vec3<f32> {
     let t = cast_ray(ray_origin, ray_dir);
 
-    let col = vec3<f32>(1. - t * 0.075);
+    var col: vec3<f32>;
+    if t == -1. {
+        col = vec3<f32>(0.3, 0.36, 0.6) - (ray_dir.y * 0.3);
+    } else {
+        col = vec3(0.);
+    }
 
     return col;
+}
+
+fn normalize_screen_coords(screen_coords: vec2<f32>, resolution: vec2<f32>) -> vec2<f32> {
+    var result = 2. * (screen_coords / resolution - 0.5);
+    result *= resolution.x / resolution.y;
+    return result;
 }
 
 @fragment
 fn fs_main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
     let resolution = vec2<f32>(f32(camera_sdf.width), f32(camera_sdf.height));
-    let uv = 2 * (position.xy / resolution - 0.5);
+    let uv = normalize_screen_coords(position.xy, resolution);
 
     let ray_dir = get_camera_ray_dir(uv, camera_sdf.eye, camera_sdf.look_at);
 
@@ -91,26 +118,6 @@ fn fs_main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
     let color = vec4<f32>(col, 1.);
 
     return color;
-
-    // let len = arrayLength(&lines);
-    // for (var i = 0; i < number_of_lines(); i++) {
-    //     let line = lines[i];
-
-    //     let offset_x = (p.x / f32(camera_sdf.width) - 0.5) * 2. * camera_right;
-    //     let offset_y = (p.y / f32(camera_sdf.height) - 0.5) * 2. * camera_up;
-
-    //     let p = camera_position + offset_x + offset_y;
-
-    //     if length(p.xy - line.a.xy) < 0.1 {
-    //         return vec4<f32>(1.);
-    //     }
-
-    //     if length(p.xy - line.b.xy) < 0.1 {
-    //         return vec4<f32>(1.);
-    //     }
-    // }
-
-    // discard;
 }
 
 
