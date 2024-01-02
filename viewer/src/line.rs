@@ -1,102 +1,34 @@
-use std::f32::consts::PI;
-
-use glam::{Mat3, Vec3};
-use kernel::line::TwoPointLine;
+use glam::Vec3;
+use kernel::line::Line;
+use kernel::Plane;
 use wgpu::include_wgsl;
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 
-use crate::camera::{Camera, CameraState};
+use crate::camera::CameraState;
 use crate::vertex::Vertex;
 
 pub struct LineState {
-    pub lines: Vec<TwoPointLine>,
+    pub lines: Vec<Line>,
+    pub line_projection_plane: Plane,
+    pub line_width: f32,
     pub line_buffer: wgpu::Buffer,
     pub render_pipeline: wgpu::RenderPipeline,
 }
 
-pub fn get_projected_vertices(lines: &Vec<TwoPointLine>, camera: &Camera) -> Vec<Vertex> {
-    let projected_lines: Vec<TwoPointLine> = lines
-        .iter()
-        .map(|l| l.project_to_plane(camera.normal(), Vec3::new(0., 0., 0.)))
-        .collect();
-
-    let mut vertices = Vec::new();
-
-    let width = 0.1;
-
-    for line in &projected_lines {
-        let line_dir = (line.b - line.a).normalize();
-        let camera_normal = camera.normal();
-
-        let rotation_matrix = Mat3::from_axis_angle(camera_normal, -PI / 2.); // PI / 2. = 90 degrees
-        let offset = rotation_matrix * line_dir * (width / 2.);
-
-        let tl = line.a + offset;
-        let bl = line.a - offset;
-        let tr = line.b + offset;
-        let br = line.b - offset;
-
-        let color = [1., 0., 0.];
-
-        vertices.push(Vertex {
-            position: bl.to_array(),
-            color,
-        });
-
-        vertices.push(Vertex {
-            position: tr.to_array(),
-            color,
-        });
-
-        vertices.push(Vertex {
-            position: tl.to_array(),
-            color,
-        });
-
-        vertices.push(Vertex {
-            position: tr.to_array(),
-            color,
-        });
-
-        vertices.push(Vertex {
-            position: bl.to_array(),
-            color,
-        });
-
-        vertices.push(Vertex {
-            position: br.to_array(),
-            color,
-        });
-    }
-
-    vertices
-}
-
 impl LineState {
     pub fn new(
-        lines: Vec<TwoPointLine>,
+        lines: Vec<Line>,
         device: &wgpu::Device,
         config: &wgpu::SurfaceConfiguration,
         camera_state: &CameraState,
     ) -> Self {
         let shader = device.create_shader_module(include_wgsl!("../shaders/line_shader.wgsl"));
 
-        //let vertices = get_projected_vertices(&lines, &camera_state.camera);
+        let camera_normal = camera_state.camera.normal();
+        let line_plane = Plane::new(camera_normal, Vec3::ZERO);
+        let line_width = 0.1;
 
-        let vertices = [
-            Vertex {
-                position: [0., 0., 0.],
-                color: [0., 1., 0.],
-            },
-            Vertex {
-                position: [1., 0., 0.],
-                color: [0., 1., 0.],
-            },
-            Vertex {
-                position: [0., 1., 0.],
-                color: [0., 1., 0.],
-            },
-        ];
+        let vertices = generate_vertices(&lines, &line_plane, line_width);
 
         let line_buffer = device.create_buffer_init(&BufferInitDescriptor {
             label: Some("Line Buffer"),
@@ -131,7 +63,7 @@ impl LineState {
                 topology: wgpu::PrimitiveTopology::TriangleList,
                 strip_index_format: None,
                 front_face: wgpu::FrontFace::Ccw,
-                cull_mode: Some(wgpu::Face::Back),
+                cull_mode: None,
                 // Setting this to anything other than Fill requires Features::NON_FILL_POLYGON_MODE
                 polygon_mode: wgpu::PolygonMode::Fill,
                 // Requires Features::DEPTH_CLIP_CONTROL
@@ -151,7 +83,39 @@ impl LineState {
         Self {
             lines,
             line_buffer,
+            line_projection_plane: line_plane,
+            line_width,
             render_pipeline,
         }
     }
+
+    pub fn update_line_projection_plane(&mut self, camera_state: &CameraState) {
+        self.line_projection_plane.normal = camera_state.camera.normal();
+    }
+
+    pub fn update_line_width(&mut self, camera_state: &CameraState) {
+        let cam_dist = camera_state.camera.eye.length();
+        self.line_width = 0.01 * cam_dist;
+    }
+
+    pub fn generate_quad_vertices(&self) -> Vec<Vertex> {
+        generate_vertices(&self.lines, &self.line_projection_plane, self.line_width)
+    }
+}
+
+fn generate_vertices(lines: &Vec<Line>, projection_plane: &Plane, line_width: f32) -> Vec<Vertex> {
+    let mut vertices = Vec::new();
+
+    for line in lines {
+        let verts = line.generate_projected_quad(&projection_plane, line_width);
+
+        for v in verts {
+            vertices.push(Vertex {
+                position: v.to_array(),
+                color: [0., 1., 0.],
+            })
+        }
+    }
+
+    vertices
 }

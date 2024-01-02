@@ -1,7 +1,8 @@
 mod relations;
 
 use crate::line::Line;
-use crate::{Arc, Plane, Point};
+use crate::point::Point;
+use crate::{Arc, Plane};
 
 pub struct SketchPlane(pub Plane);
 

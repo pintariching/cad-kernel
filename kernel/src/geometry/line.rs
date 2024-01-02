@@ -1,5 +1,8 @@
 use glam::Vec3;
 
+use crate::point::Point;
+use crate::Plane;
+
 #[derive(Debug)]
 pub enum Line {
     /// A line can be represented by a parametric equation in the form of `P(t)=P_0+t⋅v⃗`
@@ -26,12 +29,39 @@ impl Line {
         }
     }
 
-    pub fn to_two_point(&self) -> &TwoPointLine {
+    pub fn to_two_point_line(&self) -> &TwoPointLine {
         match self {
             Line::TwoPoint(l) => l,
             Line::Parametric(_) => todo!(),
             Line::Implicit(_) => todo!(),
         }
+    }
+
+    pub fn project_to_plane(&self, plane: &Plane) -> Self {
+        let tpl = self.to_two_point_line();
+
+        let a = tpl.a.project_to_plane(plane);
+        let b = tpl.b.project_to_plane(plane);
+
+        Self::TwoPoint(TwoPointLine::new(a.0, b.0))
+    }
+
+    pub fn generate_projected_quad(&self, plane: &Plane, width: f32) -> [Vec3; 6] {
+        let projected_line = self.project_to_plane(plane);
+        let tpl = projected_line.to_two_point_line();
+
+        let line_dir = (tpl.b.0 - tpl.a.0).normalize();
+        let line_up = line_dir.cross(plane.normal);
+
+        let half_width = width / 2.;
+
+        let tl = tpl.a.0 + line_up * half_width;
+        let bl = tpl.a.0 - line_up * half_width;
+
+        let tr = tpl.b.0 + line_up * half_width;
+        let br = tpl.b.0 - line_up * half_width;
+
+        [bl, tr, tl, bl, br, tr]
     }
 }
 
@@ -49,27 +79,20 @@ impl ParametricLine {
 
 #[derive(Debug)]
 pub struct TwoPointLine {
-    pub a: Vec3,
-    pub b: Vec3,
+    pub a: Point,
+    pub b: Point,
 }
 
 impl TwoPointLine {
     pub fn new(a: Vec3, b: Vec3) -> Self {
-        Self { a, b }
+        Self {
+            a: Point(a),
+            b: Point(b),
+        }
     }
 
     pub fn normal(&self) -> Vec3 {
-        (self.b - self.a).normalize()
-    }
-
-    pub fn project_to_plane(&self, plane_normal: Vec3, plane_point: Vec3) -> TwoPointLine {
-        let w_a = plane_point - self.a;
-        let p_a = w_a.dot(plane_normal) * plane_normal + self.a;
-
-        let w_b = plane_point - self.b;
-        let p_b = w_b.dot(plane_normal) * plane_normal + self.b;
-
-        TwoPointLine { a: p_a, b: p_b }
+        (self.b.0 - self.a.0).normalize()
     }
 }
 
@@ -79,35 +102,4 @@ pub struct ImplicitLine {
     pub b: f32,
     pub c: f32,
     pub d: f32,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_project_two_point_line_to_plane() {
-        let plane_normal = Vec3::new(0., 0., 1.);
-        let plane_point = Vec3::new(0., 0., 0.);
-
-        let line = TwoPointLine::new(Vec3::new(1., 1., 1.), Vec3::new(-1., -1., 1.));
-
-        let projected_line = line.project_to_plane(plane_normal, plane_point);
-
-        assert_eq!(projected_line.a, Vec3::new(1., 1., 0.));
-        assert_eq!(projected_line.b, Vec3::new(-1., -1., 0.));
-    }
-
-    #[test]
-    fn test_project_two_point_line_to_inclined_plane() {
-        let plane_normal = Vec3::new(0., 0.5, 0.5).normalize();
-        let plane_point = Vec3::new(0., 0., 0.);
-
-        let line = TwoPointLine::new(Vec3::new(1., 1., 2.), Vec3::new(-1., -1., 2.));
-
-        let projected_line = line.project_to_plane(plane_normal, plane_point);
-
-        assert_eq!(projected_line.a, Vec3::new(1., -0.49999988, 0.5000001));
-        assert_eq!(projected_line.b, Vec3::new(-1., -1.5, 1.5));
-    }
 }

@@ -1,6 +1,6 @@
 use glam::Vec3;
-use kernel::line::TwoPointLine;
-use line_sdf::LineStateSDF;
+use kernel::line::{Line, TwoPointLine};
+use line::LineState;
 use std::sync::Arc;
 use winit::dpi::PhysicalSize;
 use winit::event::{ElementState, KeyEvent};
@@ -8,7 +8,6 @@ use winit::window::Window;
 
 mod camera;
 mod line;
-mod line_sdf;
 mod vertex;
 
 use camera::{Camera, CameraState};
@@ -20,7 +19,7 @@ pub struct State<'a> {
     pub size: PhysicalSize<u32>,
     pub window: Arc<Window>,
     pub config: wgpu::SurfaceConfiguration,
-    pub line_state: LineStateSDF,
+    pub line_state: LineState,
     pub camera_state: CameraState,
 }
 
@@ -82,12 +81,18 @@ impl<'a> State<'a> {
         };
 
         let lines = vec![
-            TwoPointLine::new(Vec3::new(5., 5., 0.), Vec3::new(-5., -5., 0.)),
-            TwoPointLine::new(Vec3::new(5., 5., 0.), Vec3::new(10., 0., 0.)),
+            Line::TwoPoint(TwoPointLine::new(
+                Vec3::new(5., 5., 0.),
+                Vec3::new(-5., -5., 0.),
+            )),
+            Line::TwoPoint(TwoPointLine::new(
+                Vec3::new(5., 5., 0.),
+                Vec3::new(10., 0., 0.),
+            )),
         ];
 
         let camera = Camera {
-            eye: Vec3::new(0., 0., 10.),
+            eye: Vec3::new(0., 5., 10.),
             target: Vec3::new(0., 0., 0.),
             up: Vec3::Y,
             aspect: config.width as f32 / config.height as f32,
@@ -99,8 +104,7 @@ impl<'a> State<'a> {
         };
 
         let camera_state = CameraState::new(camera, &device);
-        // let line_state = LineState::new(lines, &device, &config, &camera_state);
-        let line_sdf_state = LineStateSDF::new(lines, &device, &config, &camera_state);
+        let line_state = LineState::new(lines, &device, &config, &camera_state);
 
         surface.configure(&device, &config);
 
@@ -111,7 +115,7 @@ impl<'a> State<'a> {
             size,
             window,
             config,
-            line_state: line_sdf_state,
+            line_state,
             camera_state,
         }
     }
@@ -156,15 +160,18 @@ impl<'a> State<'a> {
             bytemuck::cast_slice(&[self.camera_state.uniform]),
         );
 
-        self.camera_state
-            .sdf_uniform
-            .update(&self.camera_state.camera);
+        self.line_state
+            .update_line_projection_plane(&self.camera_state);
+
+        self.line_state.update_line_width(&self.camera_state);
+
+        let line_verts = self.line_state.generate_quad_vertices();
 
         self.queue.write_buffer(
-            &self.camera_state.sdf_buffer,
+            &self.line_state.line_buffer,
             0,
-            bytemuck::cast_slice(&[self.camera_state.sdf_uniform]),
-        );
+            bytemuck::cast_slice(line_verts.as_slice()),
+        )
     }
 
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
@@ -200,9 +207,8 @@ impl<'a> State<'a> {
             });
             rpass.set_pipeline(&self.line_state.render_pipeline);
             rpass.set_bind_group(0, &self.camera_state.bind_group, &[]);
-            rpass.set_bind_group(1, &self.line_state.bind_group, &[]);
-            //rpass.set_vertex_buffer(0, self.line_state.line_buffer.slice(..));
-            rpass.draw(0..3, 0..1);
+            rpass.set_vertex_buffer(0, self.line_state.line_buffer.slice(..));
+            rpass.draw(0..self.line_state.lines.len() as u32 * 6, 0..1);
         }
 
         self.queue.submit(Some(encoder.finish()));

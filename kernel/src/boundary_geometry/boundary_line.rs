@@ -1,7 +1,7 @@
 use glam::Vec3;
 
 use crate::line::{Line, TwoPointLine};
-use crate::Point;
+use crate::point::Point;
 
 pub struct BoundaryLine {
     line: Line,

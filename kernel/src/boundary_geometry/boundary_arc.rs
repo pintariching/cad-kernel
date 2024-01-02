@@ -1,6 +1,7 @@
 use glam::Vec3;
 
-use crate::{Circle, Point};
+use crate::point::Point;
+use crate::Circle;
 
 pub enum Direction {
     CW,
