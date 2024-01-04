@@ -25,6 +25,6 @@ pub enum SketchElement {
 }
 
 pub struct Sketch {
-    plane: SketchPlane,
-    elements: Vec<SketchElement>,
+    pub plane: SketchPlane,
+    pub elements: Vec<SketchElement>,
 }

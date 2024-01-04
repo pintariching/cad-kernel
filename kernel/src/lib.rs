@@ -4,4 +4,4 @@ mod sketch;
 mod tesselation;
 
 pub use geometry::*;
-pub use tesselation::*;
+pub use sketch::*;

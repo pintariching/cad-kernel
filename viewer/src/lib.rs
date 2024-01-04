@@ -1,6 +1,4 @@
 use glam::Vec3;
-use kernel::line::{Line, TwoPointLine};
-use line::LineState;
 use std::sync::Arc;
 use winit::dpi::PhysicalSize;
 use winit::event::{ElementState, KeyEvent};
@@ -8,9 +6,11 @@ use winit::window::Window;
 
 mod camera;
 mod line;
+mod sketch_state;
 mod vertex;
 
 use camera::{Camera, CameraState};
+use sketch_state::SketchState;
 
 pub struct State<'a> {
     pub surface: wgpu::Surface<'a>,
@@ -19,8 +19,8 @@ pub struct State<'a> {
     pub size: PhysicalSize<u32>,
     pub window: Arc<Window>,
     pub config: wgpu::SurfaceConfiguration,
-    pub line_state: LineState,
     pub camera_state: CameraState,
+    pub sketch_state: SketchState,
 }
 
 impl<'a> State<'a> {
@@ -80,19 +80,8 @@ impl<'a> State<'a> {
             view_formats: vec![],
         };
 
-        let lines = vec![
-            Line::TwoPoint(TwoPointLine::new(
-                Vec3::new(5., 5., 0.),
-                Vec3::new(-5., -5., 0.),
-            )),
-            Line::TwoPoint(TwoPointLine::new(
-                Vec3::new(5., 5., 0.),
-                Vec3::new(10., 0., 0.),
-            )),
-        ];
-
         let camera = Camera {
-            eye: Vec3::new(0., 5., 10.),
+            eye: Vec3::new(0., 0., 10.),
             target: Vec3::new(0., 0., 0.),
             up: Vec3::Y,
             aspect: config.width as f32 / config.height as f32,
@@ -104,7 +93,9 @@ impl<'a> State<'a> {
         };
 
         let camera_state = CameraState::new(camera, &device);
-        let line_state = LineState::new(lines, &device, &config, &camera_state);
+        // let line_state = LineState::new(lines, &device, &config, &camera_state);
+
+        let sketch_state = SketchState::new(0.1, &device, &config);
 
         surface.configure(&device, &config);
 
@@ -115,8 +106,8 @@ impl<'a> State<'a> {
             size,
             window,
             config,
-            line_state,
             camera_state,
+            sketch_state,
         }
     }
 
@@ -160,18 +151,18 @@ impl<'a> State<'a> {
             bytemuck::cast_slice(&[self.camera_state.uniform]),
         );
 
-        self.line_state
-            .update_line_projection_plane(&self.camera_state);
+        // self.line_state
+        //     .update_line_projection_plane(&self.camera_state);
 
-        self.line_state.update_line_width(&self.camera_state);
+        // self.line_state.update_line_width(&self.camera_state);
 
-        let line_verts = self.line_state.generate_quad_vertices();
+        // let line_verts = self.line_state.generate_quad_vertices();
 
-        self.queue.write_buffer(
-            &self.line_state.line_buffer,
-            0,
-            bytemuck::cast_slice(line_verts.as_slice()),
-        )
+        // self.queue.write_buffer(
+        //     &self.line_state.line_buffer,
+        //     0,
+        //     bytemuck::cast_slice(line_verts.as_slice()),
+        // )
     }
 
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
@@ -205,10 +196,11 @@ impl<'a> State<'a> {
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
-            rpass.set_pipeline(&self.line_state.render_pipeline);
-            rpass.set_bind_group(0, &self.camera_state.bind_group, &[]);
-            rpass.set_vertex_buffer(0, self.line_state.line_buffer.slice(..));
-            rpass.draw(0..self.line_state.lines.len() as u32 * 6, 0..1);
+
+            //rpass.set_pipeline(&self.line_state.render_pipeline);
+            //rpass.set_bind_group(0, &self.camera_state.bind_group, &[]);
+            //rpass.set_vertex_buffer(0, self.line_state.line_buffer.slice(..));
+            //rpass.draw(0..self.line_state.lines.len() as u32 * 6, 0..1);
         }
 
         self.queue.submit(Some(encoder.finish()));

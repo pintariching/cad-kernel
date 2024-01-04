@@ -1,4 +1,3 @@
-use glam::Vec3;
 use kernel::line::Line;
 use kernel::Plane;
 use wgpu::include_wgsl;
@@ -25,7 +24,7 @@ impl LineState {
         let shader = device.create_shader_module(include_wgsl!("../shaders/line_shader.wgsl"));
 
         let camera_normal = camera_state.camera.normal();
-        let line_plane = Plane::new(camera_normal, Vec3::ZERO);
+        let line_plane = Plane::new(camera_normal, camera_state.camera.eye + camera_normal * 0.5);
         let line_width = 0.1;
 
         let vertices = generate_vertices(&lines, &line_plane, line_width);
@@ -91,6 +90,8 @@ impl LineState {
 
     pub fn update_line_projection_plane(&mut self, camera_state: &CameraState) {
         self.line_projection_plane.normal = camera_state.camera.normal();
+        self.line_projection_plane.center =
+            camera_state.camera.eye + self.line_projection_plane.normal * 0.5;
     }
 
     pub fn update_line_width(&mut self, camera_state: &CameraState) {
