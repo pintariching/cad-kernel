@@ -7,4 +7,3 @@ edition = "2021"
 
 [dependencies]
 glam = "0.25.0"
-lyon = "1.0.1"

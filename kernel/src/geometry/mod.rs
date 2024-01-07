@@ -1,5 +1,8 @@
 use glam::Vec3;
 
+use self::line::Line;
+
+pub mod arc;
 pub mod line;
 pub mod point;
 
@@ -41,14 +44,7 @@ impl Circle {
     }
 }
 
-pub struct Arc {
-    radius: f32,
-    start: Vec3,
-    end: Vec3,
-    direction: ArcDirection,
-}
-
-pub enum ArcDirection {
-    CW,
-    CCW,
+#[derive(Debug)]
+pub struct PolyLine {
+    lines: Vec<Line>,
 }

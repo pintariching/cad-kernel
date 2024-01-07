@@ -1,11 +1,14 @@
 use glam::Vec3;
+use kernel::{Sketch, SketchArc, SketchElement, SketchPlane};
 use std::sync::Arc;
+use vertex::Vertex;
+use wgpu::util::{BufferInitDescriptor, DeviceExt};
+use wgpu::BufferAddress;
 use winit::dpi::PhysicalSize;
 use winit::event::{ElementState, KeyEvent};
 use winit::window::Window;
 
 mod camera;
-mod line;
 mod sketch_state;
 mod vertex;
 
@@ -93,9 +96,20 @@ impl<'a> State<'a> {
         };
 
         let camera_state = CameraState::new(camera, &device);
-        // let line_state = LineState::new(lines, &device, &config, &camera_state);
 
-        let sketch_state = SketchState::new(0.1, &device, &config);
+        let mut sketch_state = SketchState::new(0.1, &device, &config);
+        sketch_state.add_sketch(Sketch {
+            plane: SketchPlane::XY,
+            elements: vec![SketchElement::Arc(SketchArc(kernel::arc::Arc {
+                radius: 0.5,
+                start: Vec3::new(0.5, 0., 0.),
+                end: Vec3::new(0., 0.5, 0.),
+                center: Vec3::new(0., 0., 0.),
+                direction: kernel::arc::ArcDirection::CW,
+            }))],
+        });
+
+        sketch_state.generate_lines();
 
         surface.configure(&device, &config);
 
@@ -151,18 +165,34 @@ impl<'a> State<'a> {
             bytemuck::cast_slice(&[self.camera_state.uniform]),
         );
 
-        // self.line_state
-        //     .update_line_projection_plane(&self.camera_state);
+        let mut line_verts = Vec::new();
 
-        // self.line_state.update_line_width(&self.camera_state);
+        for line in &self.sketch_state.lines {
+            let tpl = line.to_two_point_line();
 
-        // let line_verts = self.line_state.generate_quad_vertices();
+            let a = tpl.a.0.to_array();
+            let b = tpl.b.0.to_array();
 
-        // self.queue.write_buffer(
-        //     &self.line_state.line_buffer,
-        //     0,
-        //     bytemuck::cast_slice(line_verts.as_slice()),
-        // )
+            let v_a = Vertex {
+                position: a,
+                color: [0., 1., 0.],
+            };
+
+            let v_b = Vertex {
+                position: b,
+                color: [0., 1., 0.],
+            };
+
+            line_verts.push(v_a);
+            line_verts.push(v_b);
+        }
+
+        self.sketch_state.tesselated_sketch_buffer =
+            self.device.create_buffer_init(&BufferInitDescriptor {
+                label: Some("Tesselated Sketch Buffer"),
+                contents: bytemuck::cast_slice(line_verts.as_slice()),
+                usage: wgpu::BufferUsages::VERTEX,
+            });
     }
 
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
@@ -197,10 +227,10 @@ impl<'a> State<'a> {
                 occlusion_query_set: None,
             });
 
-            //rpass.set_pipeline(&self.line_state.render_pipeline);
+            rpass.set_pipeline(&self.sketch_state.render_pipeline);
             //rpass.set_bind_group(0, &self.camera_state.bind_group, &[]);
-            //rpass.set_vertex_buffer(0, self.line_state.line_buffer.slice(..));
-            //rpass.draw(0..self.line_state.lines.len() as u32 * 6, 0..1);
+            rpass.set_vertex_buffer(0, self.sketch_state.tesselated_sketch_buffer.slice(..));
+            rpass.draw(0..self.sketch_state.lines.len() as u32 * 2, 0..1);
         }
 
         self.queue.submit(Some(encoder.finish()));

@@ -94,6 +94,10 @@ impl TwoPointLine {
     pub fn normal(&self) -> Vec3 {
         (self.b.0 - self.a.0).normalize()
     }
+
+    pub fn to_points(&self) -> [[f32; 3]; 2] {
+        [self.a.to_array(), self.b.to_array()]
+    }
 }
 
 #[derive(Debug)]
